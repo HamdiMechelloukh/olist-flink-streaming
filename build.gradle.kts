@@ -76,4 +76,5 @@ tasks.jar {
     // Fat JAR for Flink submission
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+    isZip64 = true
 }
