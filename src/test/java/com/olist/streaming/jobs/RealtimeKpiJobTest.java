@@ -63,6 +63,48 @@ class RealtimeKpiJobTest {
                 "Average order value should be 200.00");
     }
 
+    @Test
+    void nullPriceEventsAreFiltered() throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        Instant baseTime = Instant.parse("2024-01-01T00:00:00Z");
+
+        OrderEvent nullPriceEvent = new OrderEvent();
+        nullPriceEvent.setOrderId("order-null");
+        nullPriceEvent.setCustomerId("customer1");
+        nullPriceEvent.setOrderStatus("delivered");
+        nullPriceEvent.setPurchaseTimestamp(baseTime.plusSeconds(5));
+        nullPriceEvent.setProductCategory("electronics");
+        nullPriceEvent.setPrice(null);
+        nullPriceEvent.setSellerId("seller1");
+
+        List<OrderEvent> events = List.of(
+                createOrderEvent("order1", new BigDecimal("100.00"), baseTime),
+                createOrderEvent("order2", new BigDecimal("200.00"), baseTime.plusSeconds(10)),
+                nullPriceEvent
+        );
+
+        WatermarkStrategy<OrderEvent> watermarkStrategy = WatermarkStrategy
+                .<OrderEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner((event, ts) -> event.getPurchaseTimestamp().toEpochMilli());
+
+        DataStream<OrderEvent> source = env
+                .fromData(events)
+                .assignTimestampsAndWatermarks(watermarkStrategy);
+
+        List<RealtimeKpi> results = new ArrayList<>();
+        RealtimeKpiJob.defineWorkflow(source)
+                .executeAndCollect()
+                .forEachRemaining(results::add);
+
+        assertFalse(results.isEmpty(), "Should produce at least one KPI result");
+        RealtimeKpi kpi = results.getFirst();
+        assertEquals(2, kpi.getTotalOrders(), "Null-price event should be filtered out");
+        assertEquals(0, new BigDecimal("300.00").compareTo(kpi.getTotalRevenue()),
+                "Revenue should be 300.00 excluding the null-price event");
+    }
+
     private static OrderEvent createOrderEvent(String orderId, BigDecimal price, Instant timestamp) {
         OrderEvent event = new OrderEvent();
         event.setOrderId(orderId);

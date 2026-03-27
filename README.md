@@ -38,6 +38,25 @@ Olist Event Simulator (Java)
 - Docker & Docker Compose
 - Gradle (or use `./gradlew`)
 
+## Configuration
+
+Copy `.env.example` and adjust as needed:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
+| `ICEBERG_ENABLED` | `false` | Enable Iceberg sink on all jobs |
+| `ICEBERG_CATALOG_URI` | `http://localhost:8181` | Iceberg REST catalog URL |
+| `ICEBERG_WAREHOUSE` | `s3a://warehouse/` | Iceberg warehouse path |
+| `MINIO_ROOT_USER` | `admin` | MinIO / S3 access key |
+| `MINIO_ROOT_PASSWORD` | `password123` | MinIO / S3 secret key |
+| `MINIO_ENDPOINT` | `http://localhost:9000` | MinIO endpoint |
+| `OLIST_DATA_PATH` | `./data/` | Path to Olist CSV files |
+
 ## Quick Start
 
 ```bash

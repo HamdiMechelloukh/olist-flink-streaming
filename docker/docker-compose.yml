@@ -14,6 +14,12 @@ services:
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
       - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -23,7 +29,8 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
 
   jobmanager:
     image: flink:2.0-java21
@@ -36,6 +43,12 @@ services:
         taskmanager.numberOfTaskSlots: 4
     volumes:
       - flink_data:/opt/flink/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081/overview || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   taskmanager:
     image: flink:2.0-java21
@@ -45,7 +58,8 @@ services:
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 4
     depends_on:
-      - jobmanager
+      jobmanager:
+        condition: service_healthy
 
   minio:
     image: minio/minio:latest
@@ -58,14 +72,20 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   minio-init:
     image: minio/mc:latest
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      sleep 5;
       mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-admin} $${MINIO_ROOT_PASSWORD:-password123};
       mc mb --ignore-existing local/warehouse;
       exit 0;
@@ -83,7 +103,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-password123}
       AWS_REGION: us-east-1
     depends_on:
-      - minio-init
+      minio-init:
+        condition: service_completed_successfully
 
 volumes:
   kafka_data:

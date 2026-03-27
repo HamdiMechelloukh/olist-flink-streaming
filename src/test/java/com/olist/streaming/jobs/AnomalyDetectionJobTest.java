@@ -91,6 +91,62 @@ class AnomalyDetectionJobTest {
         assertEquals("suspicious-customer", results.get(0).getEntityId());
     }
 
+    @Test
+    void twoOrdersDoNotTriggerSuspiciousFrequency() throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        Instant baseTime = Instant.parse("2024-01-01T00:00:00Z");
+
+        List<OrderEvent> events = List.of(
+                createOrderEvent("order1", "customer1", "seller1", new BigDecimal("50.00"), baseTime),
+                createOrderEvent("order2", "customer1", "seller1", new BigDecimal("60.00"), baseTime.plusSeconds(30))
+        );
+
+        WatermarkStrategy<OrderEvent> watermarkStrategy = WatermarkStrategy
+                .<OrderEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner((event, ts) -> event.getPurchaseTimestamp().toEpochMilli());
+
+        DataStream<OrderEvent> source = env
+                .fromData(events)
+                .assignTimestampsAndWatermarks(watermarkStrategy);
+
+        List<OrderAlert> results = new ArrayList<>();
+        AnomalyDetectionJob.detectSuspiciousFrequency(source)
+                .executeAndCollect()
+                .forEachRemaining(results::add);
+
+        assertTrue(results.isEmpty(), "Two orders should not trigger a suspicious frequency alert");
+    }
+
+    @Test
+    void priceAtThresholdIsNotAnomaly() throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        Instant baseTime = Instant.parse("2024-01-01T00:00:00Z");
+
+        List<OrderEvent> events = List.of(
+                createOrderEvent("order1", "customer1", "seller1", new BigDecimal("500.00"), baseTime),
+                createOrderEvent("order2", "customer1", "seller1", new BigDecimal("499.99"), baseTime.plusSeconds(10))
+        );
+
+        WatermarkStrategy<OrderEvent> watermarkStrategy = WatermarkStrategy
+                .<OrderEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner((event, ts) -> event.getPurchaseTimestamp().toEpochMilli());
+
+        DataStream<OrderEvent> source = env
+                .fromData(events)
+                .assignTimestampsAndWatermarks(watermarkStrategy);
+
+        List<OrderAlert> results = new ArrayList<>();
+        AnomalyDetectionJob.detectPriceAnomaly(source)
+                .executeAndCollect()
+                .forEachRemaining(results::add);
+
+        assertTrue(results.isEmpty(), "Prices at or below 500 BRL should not trigger a price anomaly alert");
+    }
+
     private static OrderEvent createOrderEvent(String orderId, String customerId, String sellerId,
                                                 BigDecimal price, Instant timestamp) {
         OrderEvent event = new OrderEvent();
