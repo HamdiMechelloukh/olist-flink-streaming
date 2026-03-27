@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+
+# Local Gradle config (machine-specific JAVA_HOME)
+gradle.properties
+
+# Data (large CSVs)
+data/*.csv
+
+# Logs
+*.log
+logs/
