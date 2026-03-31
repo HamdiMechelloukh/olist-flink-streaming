@@ -17,8 +17,8 @@ Thumbs.db
 # Environment
 .env
 
-# Local Gradle config (machine-specific JAVA_HOME)
-gradle.properties
+# Local Gradle overrides (machine-specific)
+gradle-local.properties
 
 # Data (large CSVs)
 data/*.csv
