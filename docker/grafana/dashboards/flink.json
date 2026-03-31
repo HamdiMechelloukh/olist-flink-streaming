@@ -1,0 +1,98 @@
+{
+  "title": "Olist Flink Streaming",
+  "uid": "olist-flink",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Running Jobs",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "flink_jobmanager_numRunningJobs",
+          "legendFormat": "running jobs"
+        }
+      ],
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 2,
+      "title": "Records In / sec",
+      "type": "timeseries",
+      "gridPos": { "x": 4, "y": 0, "w": 10, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(flink_taskmanager_job_task_operator_numRecordsIn[1m])) by (job_name)",
+          "legendFormat": "{{job_name}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Records Out / sec",
+      "type": "timeseries",
+      "gridPos": { "x": 14, "y": 0, "w": 10, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(flink_taskmanager_job_task_operator_numRecordsOut[1m])) by (job_name)",
+          "legendFormat": "{{job_name}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Price Anomaly Alerts",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 4, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(flink_taskmanager_job_task_operator_priceAnomalyAlertsEmitted)",
+          "legendFormat": "price anomalies"
+        }
+      ],
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 5,
+      "title": "Suspicious Frequency Alerts",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 8, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(flink_taskmanager_job_task_operator_suspiciousFrequencyAlertsEmitted)",
+          "legendFormat": "frequency alerts"
+        }
+      ],
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 6,
+      "title": "JVM Heap Used",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 8, "w": 16, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "flink_taskmanager_Status_JVM_Memory_Heap_Used",
+          "legendFormat": "{{component}} heap used"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "flink_taskmanager_Status_JVM_Memory_Heap_Max",
+          "legendFormat": "{{component}} heap max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" }
+      }
+    }
+  ]
+}

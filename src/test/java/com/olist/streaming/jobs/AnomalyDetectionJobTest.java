@@ -49,7 +49,7 @@ class AnomalyDetectionJobTest {
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 
         List<OrderAlert> results = new ArrayList<>();
-        AnomalyDetectionJob.detectPriceAnomaly(source)
+        AnomalyDetectionJob.detectPriceAnomaly(source, new BigDecimal("500"))
                 .executeAndCollect()
                 .forEachRemaining(results::add);
 
@@ -82,7 +82,7 @@ class AnomalyDetectionJobTest {
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 
         List<OrderAlert> results = new ArrayList<>();
-        AnomalyDetectionJob.detectSuspiciousFrequency(source)
+        AnomalyDetectionJob.detectSuspiciousFrequency(source, 3)
                 .executeAndCollect()
                 .forEachRemaining(results::add);
 
@@ -112,7 +112,7 @@ class AnomalyDetectionJobTest {
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 
         List<OrderAlert> results = new ArrayList<>();
-        AnomalyDetectionJob.detectSuspiciousFrequency(source)
+        AnomalyDetectionJob.detectSuspiciousFrequency(source, 3)
                 .executeAndCollect()
                 .forEachRemaining(results::add);
 
@@ -140,7 +140,7 @@ class AnomalyDetectionJobTest {
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 
         List<OrderAlert> results = new ArrayList<>();
-        AnomalyDetectionJob.detectPriceAnomaly(source)
+        AnomalyDetectionJob.detectPriceAnomaly(source, new BigDecimal("500"))
                 .executeAndCollect()
                 .forEachRemaining(results::add);
 

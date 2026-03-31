@@ -1,7 +1,7 @@
 package com.olist.streaming.sinks;
 
-import com.olist.streaming.models.OrderEvent;
 import com.olist.streaming.models.RevenueByCategory;
+import com.olist.streaming.models.OrderAlert;
 import com.olist.streaming.models.RealtimeKpi;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.data.GenericRowData;
@@ -18,55 +18,24 @@ import org.apache.iceberg.types.Types;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Map;
 
 public class IcebergSinkBuilder {
 
+    public static final String DATABASE = "olist";
+    public static final String TABLE_REVENUE_BY_CATEGORY = "revenue_by_category";
+    public static final String TABLE_REALTIME_KPIS = "realtime_kpis";
+    public static final String TABLE_ORDER_ALERTS = "order_alerts";
+
     private final CatalogLoader catalogLoader;
 
-    public IcebergSinkBuilder(String catalogName, String catalogUri, String warehouse,
-                               String s3Endpoint, String s3AccessKey, String s3SecretKey) {
-        Map<String, String> catalogProperties = Map.of(
-                "type", "rest",
-                "uri", catalogUri,
-                "warehouse", warehouse,
-                "s3.endpoint", s3Endpoint,
-                "s3.access-key-id", s3AccessKey,
-                "s3.secret-access-key", s3SecretKey,
-                "s3.path-style-access", "true"
+    public IcebergSinkBuilder(IcebergCatalogConfig config) {
+        org.apache.hadoop.conf.Configuration hadoopConf = new org.apache.hadoop.conf.Configuration();
+        config.toProperties().forEach(hadoopConf::set);
+        this.catalogLoader = CatalogLoader.hadoop(
+                config.catalogName(),
+                hadoopConf,
+                config.toProperties()
         );
-
-        this.catalogLoader = CatalogLoader.custom(
-                catalogName,
-                catalogProperties,
-                new org.apache.hadoop.conf.Configuration(),
-                "org.apache.iceberg.rest.RESTCatalog"
-        );
-    }
-
-    public void attachOrderEventSink(DataStream<OrderEvent> stream, String database, String table) {
-        TableIdentifier tableId = TableIdentifier.of(database, table);
-        TableLoader tableLoader = TableLoader.fromCatalog(catalogLoader, tableId);
-
-        FlinkSink.builderFor(
-                        stream,
-                        event -> {
-                            GenericRowData row = new GenericRowData(10);
-                            row.setField(0, toStringData(event.getOrderId()));
-                            row.setField(1, toStringData(event.getCustomerId()));
-                            row.setField(2, toStringData(event.getOrderStatus()));
-                            row.setField(3, toTimestampData(event.getPurchaseTimestamp()));
-                            row.setField(4, toStringData(event.getProductId()));
-                            row.setField(5, toStringData(event.getSellerId()));
-                            row.setField(6, toStringData(event.getProductCategory()));
-                            row.setField(7, toDecimalData(event.getPrice()));
-                            row.setField(8, toDecimalData(event.getFreightValue()));
-                            row.setField(9, toStringData(event.getPaymentType()));
-                            return row;
-                        },
-                        org.apache.flink.api.common.typeinfo.TypeInformation.of(RowData.class))
-                .tableLoader(tableLoader)
-                .append();
     }
 
     public void attachRevenueSink(DataStream<RevenueByCategory> stream, String database, String table) {
@@ -110,21 +79,6 @@ public class IcebergSinkBuilder {
                 .append();
     }
 
-    public static Schema orderEventSchema() {
-        return new Schema(
-                Types.NestedField.optional(1, "order_id", Types.StringType.get()),
-                Types.NestedField.optional(2, "customer_id", Types.StringType.get()),
-                Types.NestedField.optional(3, "order_status", Types.StringType.get()),
-                Types.NestedField.optional(4, "purchase_timestamp", Types.TimestampType.withZone()),
-                Types.NestedField.optional(5, "product_id", Types.StringType.get()),
-                Types.NestedField.optional(6, "seller_id", Types.StringType.get()),
-                Types.NestedField.optional(7, "product_category", Types.StringType.get()),
-                Types.NestedField.optional(8, "price", Types.DecimalType.of(10, 2)),
-                Types.NestedField.optional(9, "freight_value", Types.DecimalType.of(10, 2)),
-                Types.NestedField.optional(10, "payment_type", Types.StringType.get())
-        );
-    }
-
     public static Schema revenueByCategorySchema() {
         return new Schema(
                 Types.NestedField.optional(1, "product_category", Types.StringType.get()),
@@ -135,9 +89,39 @@ public class IcebergSinkBuilder {
         );
     }
 
+    public void attachAlertSink(DataStream<OrderAlert> stream, String database, String table) {
+        TableIdentifier tableId = TableIdentifier.of(database, table);
+        TableLoader tableLoader = TableLoader.fromCatalog(catalogLoader, tableId);
+
+        FlinkSink.builderFor(
+                        stream,
+                        alert -> {
+                            GenericRowData row = new GenericRowData(5);
+                            row.setField(0, toStringData(alert.getAlertType() != null ? alert.getAlertType().name() : null));
+                            row.setField(1, toStringData(alert.getEntityId()));
+                            row.setField(2, toStringData(alert.getDescription()));
+                            row.setField(3, toDecimalData(alert.getValue()));
+                            row.setField(4, toTimestampData(alert.getDetectedAt()));
+                            return row;
+                        },
+                        org.apache.flink.api.common.typeinfo.TypeInformation.of(RowData.class))
+                .tableLoader(tableLoader)
+                .append();
+    }
+
+    public static Schema orderAlertSchema() {
+        return new Schema(
+                Types.NestedField.optional(1, "alert_type", Types.StringType.get()),
+                Types.NestedField.optional(2, "entity_id", Types.StringType.get()),
+                Types.NestedField.optional(3, "description", Types.StringType.get()),
+                Types.NestedField.optional(4, "value", Types.DecimalType.of(12, 2)),
+                Types.NestedField.optional(5, "detected_at", Types.TimestampType.withZone())
+        );
+    }
+
     public static Schema realtimeKpiSchema() {
         return new Schema(
-                Types.NestedField.optional(1, "average_order_value", Types.DecimalType.of(10, 2)),
+                Types.NestedField.optional(1, "average_order_value", Types.DecimalType.of(12, 2)),
                 Types.NestedField.optional(2, "orders_per_minute", Types.DoubleType.get()),
                 Types.NestedField.optional(3, "total_orders", Types.LongType.get()),
                 Types.NestedField.optional(4, "total_revenue", Types.DecimalType.of(12, 2)),

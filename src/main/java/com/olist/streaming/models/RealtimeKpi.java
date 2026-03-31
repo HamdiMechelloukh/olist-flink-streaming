@@ -1,9 +1,12 @@
 package com.olist.streaming.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class RealtimeKpi {
 
     private BigDecimal averageOrderValue;

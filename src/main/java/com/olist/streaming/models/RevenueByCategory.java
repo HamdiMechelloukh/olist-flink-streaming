@@ -1,9 +1,12 @@
 package com.olist.streaming.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class RevenueByCategory {
 
     private String productCategory;
@@ -26,7 +29,7 @@ public class RevenueByCategory {
     public static RevenueByCategory fromOrderEvent(OrderEvent event) {
         RevenueByCategory revenue = new RevenueByCategory();
         revenue.setProductCategory(event.getProductCategory());
-        revenue.setTotalRevenue(event.getPrice() != null ? event.getPrice() : BigDecimal.ZERO);
+        revenue.setTotalRevenue(event.getTotalValue());
         revenue.setOrderCount(1);
         return revenue;
     }
@@ -34,7 +37,9 @@ public class RevenueByCategory {
     public RevenueByCategory merge(RevenueByCategory other) {
         RevenueByCategory merged = new RevenueByCategory();
         merged.setProductCategory(this.productCategory);
-        merged.setTotalRevenue(this.totalRevenue.add(other.totalRevenue));
+        merged.setTotalRevenue(
+                Objects.requireNonNullElse(this.totalRevenue, BigDecimal.ZERO)
+                        .add(Objects.requireNonNullElse(other.totalRevenue, BigDecimal.ZERO)));
         merged.setOrderCount(this.orderCount + other.orderCount);
         merged.setWindowStart(this.windowStart);
         merged.setWindowEnd(this.windowEnd);

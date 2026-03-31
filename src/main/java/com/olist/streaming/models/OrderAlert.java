@@ -1,15 +1,17 @@
 package com.olist.streaming.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class OrderAlert {
 
     public enum AlertType {
         SUSPICIOUS_FREQUENCY,
-        PRICE_ANOMALY,
-        ORDER_SPIKE
+        PRICE_ANOMALY
     }
 
     private AlertType alertType;

@@ -8,24 +8,28 @@ import org.apache.flink.api.common.serialization.SerializationSchema;
 public class JsonSerializationSchemaFactory {
 
     public static <T> SerializationSchema<T> create(Class<T> clazz) {
-        return new SerializationSchema<>() {
-            private transient ObjectMapper objectMapper;
+        return new JsonSerializationSchema<>(clazz);
+    }
 
-            @Override
-            public byte[] serialize(T element) {
-                try {
-                    return getObjectMapper().writeValueAsBytes(element);
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException("Failed to serialize " + clazz.getSimpleName(), e);
-                }
-            }
+    private static final class JsonSerializationSchema<T> implements SerializationSchema<T> {
 
-            private ObjectMapper getObjectMapper() {
-                if (objectMapper == null) {
-                    objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
-                }
-                return objectMapper;
+        private static final long serialVersionUID = 1L;
+        private static final ObjectMapper OBJECT_MAPPER =
+                new ObjectMapper().registerModule(new JavaTimeModule());
+
+        private final Class<T> clazz;
+
+        JsonSerializationSchema(Class<T> clazz) {
+            this.clazz = clazz;
+        }
+
+        @Override
+        public byte[] serialize(T element) {
+            try {
+                return OBJECT_MAPPER.writeValueAsBytes(element);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException("Failed to serialize " + clazz.getSimpleName(), e);
             }
-        };
+        }
     }
 }

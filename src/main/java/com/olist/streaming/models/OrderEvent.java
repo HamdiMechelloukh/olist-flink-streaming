@@ -23,7 +23,7 @@ public class OrderEvent {
     private String orderStatus;
 
     @JsonProperty("order_purchase_timestamp")
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = TIMESTAMP_FORMAT)
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = TIMESTAMP_FORMAT, timezone = "UTC")
     private Instant purchaseTimestamp;
 
     @JsonProperty("product_id")
@@ -40,9 +40,6 @@ public class OrderEvent {
 
     @JsonProperty("freight_value")
     private BigDecimal freightValue;
-
-    @JsonProperty("payment_type")
-    private String paymentType;
 
     public OrderEvent() {}
 
@@ -73,13 +70,10 @@ public class OrderEvent {
     public BigDecimal getFreightValue() { return freightValue; }
     public void setFreightValue(BigDecimal freightValue) { this.freightValue = freightValue; }
 
-    public String getPaymentType() { return paymentType; }
-    public void setPaymentType(String paymentType) { this.paymentType = paymentType; }
-
     public BigDecimal getTotalValue() {
-        if (price == null) return freightValue;
-        if (freightValue == null) return price;
-        return price.add(freightValue);
+        BigDecimal p = price != null ? price : BigDecimal.ZERO;
+        BigDecimal f = freightValue != null ? freightValue : BigDecimal.ZERO;
+        return p.add(f);
     }
 
     @Override

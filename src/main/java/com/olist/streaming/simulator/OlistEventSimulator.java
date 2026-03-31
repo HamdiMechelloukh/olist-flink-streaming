@@ -3,6 +3,9 @@ package com.olist.streaming.simulator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.olist.streaming.models.OrderEvent;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -10,7 +13,6 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
@@ -51,6 +53,7 @@ public class OlistEventSimulator {
             int sent = 0;
 
             for (OrderEvent event : events) {
+                long sendStart = System.currentTimeMillis();
                 String json = objectMapper.writeValueAsString(event);
                 producer.send(new ProducerRecord<>(TOPIC, event.getOrderId(), json));
                 sent++;
@@ -59,7 +62,10 @@ public class OlistEventSimulator {
                     LOG.info("Sent {} / {} events", sent, events.size());
                 }
 
-                Thread.sleep(delayMs);
+                long remaining = delayMs - (System.currentTimeMillis() - sendStart);
+                if (remaining > 0) {
+                    Thread.sleep(remaining);
+                }
             }
 
             producer.flush();
@@ -67,23 +73,23 @@ public class OlistEventSimulator {
         }
     }
 
+    private static final CSVFormat CSV_FORMAT = CSVFormat.DEFAULT.builder()
+            .setHeader()
+            .setSkipHeaderRecord(true)
+            .setIgnoreSurroundingSpaces(true)
+            .build();
+
     private List<OrderEvent> loadAndEnrichOrders(Map<String, String> productCategories,
                                                   Map<String, List<ItemRecord>> orderItems) throws IOException {
         List<OrderEvent> events = new ArrayList<>();
         Path ordersFile = dataPath.resolve("olist_orders_dataset.csv");
 
-        try (BufferedReader reader = Files.newBufferedReader(ordersFile)) {
-            String header = reader.readLine();
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                String[] fields = parseCsvLine(line);
-                if (fields.length < 4) continue;
-
-                String orderId = stripQuotes(fields[0]);
-                String customerId = stripQuotes(fields[1]);
-                String orderStatus = stripQuotes(fields[2]);
-                Instant purchaseTimestamp = parseTimestamp(stripQuotes(fields[3]));
+        try (CSVParser parser = CSV_FORMAT.parse(Files.newBufferedReader(ordersFile))) {
+            for (CSVRecord record : parser) {
+                String orderId = record.get("order_id");
+                String customerId = record.get("customer_id");
+                String orderStatus = record.get("order_status");
+                Instant purchaseTimestamp = parseTimestamp(record.get("order_purchase_timestamp"));
 
                 if (purchaseTimestamp == null) continue;
 
@@ -121,22 +127,15 @@ public class OlistEventSimulator {
         Map<String, List<ItemRecord>> orderItems = new HashMap<>();
         Path itemsFile = dataPath.resolve("olist_order_items_dataset.csv");
 
-        try (BufferedReader reader = Files.newBufferedReader(itemsFile)) {
-            reader.readLine(); // skip header
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                String[] fields = parseCsvLine(line);
-                if (fields.length < 7) continue;
-
-                String orderId = stripQuotes(fields[0]);
+        try (CSVParser parser = CSV_FORMAT.parse(Files.newBufferedReader(itemsFile))) {
+            for (CSVRecord record : parser) {
+                String orderId = record.get("order_id");
                 ItemRecord item = new ItemRecord(
-                        stripQuotes(fields[2]),
-                        stripQuotes(fields[3]),
-                        parseBigDecimal(fields[5]),
-                        parseBigDecimal(fields[6])
+                        record.get("product_id"),
+                        record.get("seller_id"),
+                        parseBigDecimal(record.get("price")),
+                        parseBigDecimal(record.get("freight_value"))
                 );
-
                 orderItems.computeIfAbsent(orderId, k -> new ArrayList<>()).add(item);
             }
         }
@@ -148,17 +147,11 @@ public class OlistEventSimulator {
         Map<String, String> productCategories = new HashMap<>();
         Path productsFile = dataPath.resolve("olist_products_dataset.csv");
 
-        try (BufferedReader reader = Files.newBufferedReader(productsFile)) {
-            reader.readLine(); // skip header
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                String[] fields = parseCsvLine(line);
-                if (fields.length < 2) continue;
-
-                String productId = stripQuotes(fields[0]);
-                String category = stripQuotes(fields[1]);
-                if (!category.isEmpty()) {
+        try (CSVParser parser = CSV_FORMAT.parse(Files.newBufferedReader(productsFile))) {
+            for (CSVRecord record : parser) {
+                String productId = record.get("product_id");
+                String category = record.get("product_category_name");
+                if (category != null && !category.isEmpty()) {
                     productCategories.put(productId, category);
                 }
             }
@@ -189,19 +182,10 @@ public class OlistEventSimulator {
 
     private static BigDecimal parseBigDecimal(String value) {
         try {
-            return new BigDecimal(stripQuotes(value));
+            return new BigDecimal(value.trim());
         } catch (Exception e) {
             return BigDecimal.ZERO;
         }
-    }
-
-    private static String stripQuotes(String value) {
-        if (value == null) return "";
-        return value.replaceAll("^\"|\"$", "").trim();
-    }
-
-    private static String[] parseCsvLine(String line) {
-        return line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1);
     }
 
     private record ItemRecord(String productId, String sellerId, BigDecimal price, BigDecimal freightValue) {}
