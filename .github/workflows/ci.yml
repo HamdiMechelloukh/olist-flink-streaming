@@ -5,9 +5,18 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # Le projet a cesse de demarrer sans qu'une ligne de code change : des images
+  # retirees de leur registre et un tag flottant qui a glisse. Sans execution
+  # planifiee, la CI ne tournait plus depuis le dernier push et personne ne le
+  # voyait. L'execution hebdomadaire sert a l'apprendre par un mail plutot que
+  # par quelqu'un qui clone le depot.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 jobs:
   build:
+    name: Compile et tests
     runs-on: ubuntu-latest
 
     steps:
@@ -30,3 +39,108 @@ jobs:
         with:
           name: jacoco-report
           path: build/reports/jacoco/test/html/
+
+  images:
+    name: Images du compose encore tirables
+    runs-on: ubuntu-latest
+
+    # Etape volontairement separee et rapide : c'est elle qui aurait signale le
+    # retrait des images MinIO, que les tests Java ne peuvent pas voir.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull de toutes les images declarees
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f docker/docker-compose.yml pull
+
+      - name: Rappel des versions obtenues
+        run: docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+
+  smoke:
+    name: Le pipeline demarre vraiment
+    runs-on: ubuntu-latest
+    needs: images
+
+    # Les tests unitaires tournent sur MiniCluster et ne touchent ni Kafka ni le
+    # cluster Flink. C'est cette etape qui aurait attrape le plugin S3 epingle a
+    # une version de patch disparue, et les jobs soumis avant la creation du topic.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build du shadowJar
+        run: ./gradlew shadowJar
+
+      - name: Demarrage de Kafka et du cluster Flink
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f docker/docker-compose.yml \
+            up -d kafka jobmanager taskmanager
+
+      - name: Attente du JobManager
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8081/overview > /dev/null; then
+              echo "JobManager pret apres ${i}x5s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "JobManager injoignable" >&2
+          exit 1
+
+      - name: Attente de l enregistrement du TaskManager
+        run: |
+          for i in $(seq 1 30); do
+            slots=$(curl -sf http://localhost:8081/overview | python3 -c 'import sys,json; print(json.load(sys.stdin).get("slots-total",0))')
+            if [ "${slots:-0}" -ge 1 ]; then
+              echo "$slots slot(s) disponibles"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "aucun slot : le TaskManager ne s est pas enregistre" >&2
+          exit 1
+
+      - name: Creation des topics
+        run: ./scripts/create-topics.sh
+
+      - name: Soumission d un job et verification qu il tourne
+        run: |
+          docker cp build/libs/olist-flink-streaming-1.0-SNAPSHOT.jar \
+            docker-jobmanager-1:/tmp/job.jar
+          docker exec -d docker-jobmanager-1 \
+            flink run -c com.olist.streaming.jobs.RevenueAggregationJob /tmp/job.jar
+          # Un job peut passer brievement par RUNNING avant de boucler en
+          # RESTARTING : on exige qu il tienne, pas qu il y passe.
+          sleep 45
+          state=$(curl -sf http://localhost:8081/jobs/overview \
+            | python3 -c 'import sys,json; js=json.load(sys.stdin)["jobs"]; print(js[0]["state"] if js else "AUCUN")')
+          echo "etat du job : $state"
+          if [ "$state" != "RUNNING" ]; then
+            echo "le job n est pas RUNNING" >&2
+            exit 1
+          fi
+
+      - name: Journaux en cas d echec
+        if: failure()
+        run: |
+          echo "=== jobmanager ==="
+          docker logs docker-jobmanager-1 2>&1 | tail -80
+          echo "=== taskmanager ==="
+          docker logs docker-taskmanager-1 2>&1 | tail -40
+          echo "=== kafka ==="
+          docker logs docker-kafka-1 2>&1 | tail -20
+
+      - name: Arret
+        if: always()
+        run: docker compose --env-file .env -f docker/docker-compose.yml down -v

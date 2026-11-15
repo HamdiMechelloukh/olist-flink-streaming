@@ -17,7 +17,15 @@ until curl -sf http://localhost:8081/overview > /dev/null; do
 done
 echo "✅ JobManager is up!"
 
-# 2. Build the Application
+# 2. Create topics BEFORE submitting jobs.
+# Kafka auto-creation only triggers on the first WRITE, but the Flink jobs start
+# by READING. Submitted before the simulator runs, their Kafka source fails with
+# "Failed to get metadata for topics [orders]" and they crash-loop in RESTARTING
+# until something writes. Creating them here removes that.
+echo "📋 Creating Kafka topics..."
+./scripts/create-topics.sh
+
+# 3. Build the Application
 echo "🏗️ Building Shadow JAR..."
 ./gradlew shadowJar
 
@@ -28,7 +36,7 @@ docker cp "$JAR_PATH" docker-jobmanager-1:/tmp/job.jar
 
 # 4. Initialize Iceberg Tables inside the Flink container (Hadoop/S3 plugin available there)
 echo "🧊 Initializing Iceberg tables in MinIO..."
-docker exec -e MINIO_ENDPOINT=http://minio:9000 \
+docker exec -e MINIO_ENDPOINT=http://s3:9000 \
             -e MINIO_ROOT_USER="${MINIO_ROOT_USER:-admin}" \
             -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-password123}" \
   docker-jobmanager-1 flink run -c com.olist.streaming.sinks.IcebergTableInitializer /tmp/job.jar \
