@@ -16,8 +16,8 @@ flowchart TD
     KAFKA_REV[["Kafka\nrevenue-by-category"]]
     KAFKA_ALERT[["Kafka\norder-alerts"]]
     KAFKA_KPI[["Kafka\nrealtime-kpis"]]
-    ICE[("Apache Iceberg\nMinIO · s3a://warehouse")]
-    CKP[("Flink Checkpoints\nRocksDB → MinIO")]
+    ICE[("Apache Iceberg\nSeaweedFS · s3a://warehouse")]
+    CKP[("Flink Checkpoints\nRocksDB → s3a://")]
 
     SIM --> KAFKA_IN
     KAFKA_IN --> REV
@@ -61,7 +61,15 @@ Copy `.env.example` and adjust as needed:
 cp .env.example .env
 ```
 
-> **Note**: `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` are set to insecure defaults in `.env.example`. Change them before any non-local deployment.
+> **Note**: `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` are set to insecure
+> defaults in `.env.example`. Change them before any non-local deployment.
+>
+> They keep their historical names because `IcebergCatalogConfig` reads them,
+> but the object store is now SeaweedFS: MinIO withdrew its public container
+> images, which stopped the stack from starting at all. SeaweedFS rejects signed
+> requests unless an auth config exists, so the compose file generates one from
+> these two variables at startup — they are the single source for the S3
+> credentials.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -71,9 +79,9 @@ cp .env.example .env
 | `ICEBERG_CATALOG_URI` | `http://localhost:8181` | Iceberg REST catalog URL |
 | `ICEBERG_WAREHOUSE` | `s3a://warehouse/` | Iceberg warehouse path |
 | `ICEBERG_CATALOG_NAME` | `olist_catalog` | Iceberg REST catalog name |
-| `MINIO_ROOT_USER` | `admin` | MinIO / S3 access key |
-| `MINIO_ROOT_PASSWORD` | `password123` | MinIO / S3 secret key |
-| `MINIO_ENDPOINT` | `http://localhost:9000` | MinIO endpoint |
+| `MINIO_ROOT_USER` | `admin` | S3 access key |
+| `MINIO_ROOT_PASSWORD` | `password123` | S3 secret key |
+| `MINIO_ENDPOINT` | `http://localhost:9000` | S3 endpoint (SeaweedFS) |
 | `OLIST_DATA_PATH` | `./data/` | Path to Olist CSV files |
 | `EVENTS_PER_SECOND` | `50` | Simulator event throughput |
 | `ORDERS_TOPIC` | `orders` | Kafka source topic for all jobs |
@@ -106,7 +114,7 @@ cp .env.example .env
 ### Grafana — real-time metrics
 ![Grafana Dashboard](docs/screenshots/flink-grafana.png)
 
-### MinIO — Iceberg warehouse
+### Object store — Iceberg warehouse
 ![MinIO Warehouse](docs/screenshots/flink-s3-database.png)
 ![Iceberg Tables](docs/screenshots/flink-s3-olisttables.png)
 ![Table Content](docs/screenshots/flink-s3-table-content.png)
@@ -120,7 +128,7 @@ Once the pipeline is running, you can access the following UIs:
 | **Flink Web UI** | [http://localhost:8081](http://localhost:8081) | Job graph, task metrics, and checkpoints. |
 | **Kafka UI** | [http://localhost:8080](http://localhost:8080) | Inspect messages in Kafka topics. |
 | **Grafana** | [http://localhost:3001](http://localhost:3001) | Real-time dashboards (Admin: `admin`/`admin`). |
-| **MinIO Console** | [http://localhost:9001](http://localhost:9001) | S3-compatible storage for Iceberg and checkpoints. |
+| **SeaweedFS Filer** | [http://localhost:8888](http://localhost:8888) | Browse the S3-compatible store holding Iceberg tables and checkpoints. |
 | **Prometheus** | [http://localhost:9090](http://localhost:9090) | Raw metric queries. |
 
 ## Manual Operations
@@ -155,7 +163,7 @@ Tests use Flink MiniCluster (no external infrastructure needed).
 
 ## Iceberg Sink
 
-The Iceberg sink is optional, controlled by `ICEBERG_ENABLED=true`. When enabled, Flink jobs write results to Iceberg tables stored in MinIO (S3-compatible).
+The Iceberg sink is optional, controlled by `ICEBERG_ENABLED=true`. When enabled, Flink jobs write results to Iceberg tables stored in SeaweedFS (S3-compatible).
 
 Initialize tables before first run (handled automatically by `start-e2e.sh`):
 
@@ -185,9 +193,42 @@ Each job exposes custom Flink metrics visible in the Flink Web UI under Task Met
 | `priceAnomalyAlertsEmitted` | AnomalyDetectionJob | Price anomaly alerts fired |
 | `suspiciousFrequencyAlertsEmitted` | AnomalyDetectionJob | Suspicious frequency alerts fired |
 
+## Benchmarks
+
+Measured on a single node (Intel i5-7400, 4 threads, Docker CE in WSL2), on the
+public Olist dataset. Full method, per-operator figures and limits in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+| Configuration | `orders` partitions | Parallelism | Sustained | Saturates at |
+|---|---|---|---|---|
+| **Old defaults** | 1 | 1 | **~500 events/s** | 1 000 events/s |
+| Partitions only | 4 | 1 | ~500 events/s | 1 000 events/s |
+| **Current defaults** | 4 | 4 | **2 000 events/s** | 4 000 events/s |
+
+Two values that had never been set — the partition count of the auto-created
+topic and `parallelism.default` — separated 500 from 2 000 events per second on
+identical hardware. Both are now set explicitly, which is what these
+measurements prompted. At parallelism 1 the TaskManager stayed pinned to one
+core whatever the four available slots suggested. Raising partitions alone buys
+one step, not four: a single subtask still consumes every partition.
+
+**The bottleneck is the CEP operator, not `windowAll`.** At saturation
+`AnomalyDetectionJob` sits at 56 % busy time with 54 % back pressure and is the
+only job accumulating lag, while `RealtimeKpiJob` never exceeds 2.5 % busy time
+with zero lag. Its checkpoints grow from 183 ms to 5.8 s as CEP state builds —
+the pattern keys five minutes of state per customer, and nearly every Olist
+customer placed a single order.
+
+Throughput is measured at the broker from `orders` end offsets, not
+self-reported by the load generator:
+
+```bash
+BENCH_RATES=500,1000,2000 BENCH_DURATION=90 python3 scripts/benchmark.py
+```
+
 ## Design Notes
 
-- **`RealtimeKpiJob` uses `windowAll`**: global KPIs (total orders, total revenue) require aggregating across all partitions. `windowAll` is intentional here — the single-partition bottleneck is acceptable at this scale. For higher throughput, a two-phase aggregation (pre-aggregate per key, then merge) would be needed.
+- **`RealtimeKpiJob` uses `windowAll`**: global KPIs (total orders, total revenue) require aggregating across all partitions. `windowAll` is intentional here — the single-partition bottleneck is acceptable at this scale. For higher throughput, a two-phase aggregation (pre-aggregate per key, then merge) would be needed. **Measured correction**: benchmarking shows this operator is *not* the constraint at this scale — it stays under 2.5 % busy time with zero lag even at saturation, while the CEP operator in `AnomalyDetectionJob` saturates first. Two-phase aggregation would be the right fix if `windowAll` were the limit, but the measurements put it low on the list. See [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ## Known Limitations & Future Work
 
@@ -200,7 +241,7 @@ Each job exposes custom Flink metrics visible in the Flink Web UI under Task Met
 - **Apache Flink 2.0** — stream processing
 - **Apache Kafka** — event streaming
 - **Apache Iceberg** — analytics table format
-- **MinIO** — S3-compatible object storage
+- **SeaweedFS** — S3-compatible object storage
 - **Java 21** — language
 - **Gradle** — build tool
 - **JUnit 5 + Flink MiniCluster** — testing

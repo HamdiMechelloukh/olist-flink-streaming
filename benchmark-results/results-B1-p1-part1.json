@@ -1,0 +1,57 @@
+{
+  "label": "B1-p1-part1 : orders=1 partitions, parallelism=1, AnomalyDetection seul",
+  "env": {
+    "flink_version": "2.0.2",
+    "taskmanagers": 1,
+    "slots_total": 4,
+    "iceberg_enabled": false,
+    "checkpoint_storage": "file:///opt/flink/data/checkpoints",
+    "orders_partitions": 1,
+    "jobs": {
+      "AnomalyDetection": 1
+    }
+  },
+  "results": [
+    {
+      "target_rate": 500,
+      "sending_duration_s": 90,
+      "wallclock_s": 100.2,
+      "sending_per_s": 500.0111111111111,
+      "wallclock_per_s": 448.9203660030098,
+      "messages_produced": 45001,
+      "samples": 10,
+      "jobs": {
+        "AnomalyDetection": {
+          "source_records_in_per_s": 158.05238095238096,
+          "busy_pct": 80.02857142857144,
+          "backpressure_pct": 67.5,
+          "pending_records_max": 18607.0,
+          "checkpoint_ms": 11548.857142857143,
+          "checkpoint_bytes": 2538631.8571428573,
+          "checkpoints_ok": 3.0,
+          "checkpoints_ko": 1.0
+        }
+      },
+      "cpu": {
+        "docker-prometheus-1": {
+          "cpu_pct": 0.48,
+          "mem": "63.64MiB / 15.59GiB"
+        },
+        "docker-taskmanager-1": {
+          "cpu_pct": 103.45,
+          "mem": "1.133GiB / 15.59GiB"
+        },
+        "docker-jobmanager-1": {
+          "cpu_pct": 21.03,
+          "mem": "1.753GiB / 15.59GiB"
+        },
+        "docker-kafka-1": {
+          "cpu_pct": 1.25,
+          "mem": "916.4MiB / 15.59GiB"
+        }
+      },
+      "drained": false
+    }
+  ],
+  "generated_at": "2026-11-15T13:49:16"
+}

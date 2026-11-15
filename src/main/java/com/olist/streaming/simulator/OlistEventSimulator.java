@@ -28,16 +28,24 @@ public class OlistEventSimulator {
     private static final Logger LOG = LoggerFactory.getLogger(OlistEventSimulator.class);
     private static final String TOPIC = "orders";
     private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    /** En dessous, la granularite du timer de l'OS coute plus cher que le retard a corriger. */
+    private static final long SLEEP_THRESHOLD_NANOS = 2_000_000L;
 
     private final String bootstrapServers;
     private final Path dataPath;
     private final int eventsPerSecond;
+    private final int durationSeconds;
     private final ObjectMapper objectMapper;
 
     public OlistEventSimulator(String bootstrapServers, Path dataPath, int eventsPerSecond) {
+        this(bootstrapServers, dataPath, eventsPerSecond, 0);
+    }
+
+    public OlistEventSimulator(String bootstrapServers, Path dataPath, int eventsPerSecond, int durationSeconds) {
         this.bootstrapServers = bootstrapServers;
         this.dataPath = dataPath;
         this.eventsPerSecond = eventsPerSecond;
+        this.durationSeconds = durationSeconds;
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
@@ -46,31 +54,98 @@ public class OlistEventSimulator {
         Map<String, List<ItemRecord>> orderItems = loadOrderItems();
         List<OrderEvent> events = loadAndEnrichOrders(productCategories, orderItems);
 
-        LOG.info("Loaded {} events, sending at {} events/second", events.size(), eventsPerSecond);
+        if (events.isEmpty()) {
+            LOG.warn("Aucun evenement charge depuis {}", dataPath);
+            return;
+        }
+
+        LOG.info("Loaded {} events, sending at {} events/second{}", events.size(), eventsPerSecond,
+                durationSeconds > 0 ? " for " + durationSeconds + "s (dataset rejoue)" : "");
+
+        // Valeurs d'origine : en mode duree le dataset est rejoue, et chaque passage doit
+        // porter des cles distinctes et des horodatages decales.
+        int count = events.size();
+        String[] baseOrderIds = new String[count];
+        String[] baseCustomerIds = new String[count];
+        long[] baseTimestamps = new long[count];
+        for (int i = 0; i < count; i++) {
+            OrderEvent event = events.get(i);
+            baseOrderIds[i] = event.getOrderId();
+            baseCustomerIds[i] = event.getCustomerId();
+            baseTimestamps[i] = event.getPurchaseTimestamp().toEpochMilli();
+        }
+
+        // Les fenetres sont en temps evenementiel sur la date d'achat, et les evenements
+        // sont tries. Rejouer le dataset sans decaler ferait reculer le temps : le
+        // watermark etant deja avance, tout le passage suivant serait traite comme
+        // retardataire et les fenetres resteraient vides. D'ou un decalage d'une
+        // amplitude complete du dataset a chaque passage.
+        long spanMillis = baseTimestamps[count - 1] - baseTimestamps[0] + 60_000L;
+
+        // Echeance absolue au nanoseconde plutot qu'un sleep par evenement.
+        //
+        // La division entiere 1000/eventsPerSecond rendait le reglage inoperant :
+        // elle vaut 1 ms pour toute cible entre 501 et 1000 ev/s, puis 0 au-dela.
+        // Et un sleep par evenement accumule la derive au lieu de la rattraper,
+        // d'autant plus vite que la granularite du timer de l'OS est grossiere.
+        //
+        // Ici l'echeance est absolue, donc l'ecart se resorbe au lieu de se cumuler,
+        // et on ne dort que si le retard vaut la peine d'un appel systeme.
+        long intervalNanos = Math.max(1L, 1_000_000_000L / eventsPerSecond);
+        long startNanos = System.nanoTime();
+        long deadlineNanos = durationSeconds > 0
+                ? startNanos + durationSeconds * 1_000_000_000L
+                : Long.MAX_VALUE;
 
         try (KafkaProducer<String, String> producer = createProducer()) {
-            long delayMs = 1000L / eventsPerSecond;
-            int sent = 0;
+            long sent = 0;
+            int pass = 0;
 
-            for (OrderEvent event : events) {
-                long sendStart = System.currentTimeMillis();
-                String json = objectMapper.writeValueAsString(event);
-                producer.send(new ProducerRecord<>(TOPIC, event.getOrderId(), json));
-                sent++;
+            emission:
+            while (true) {
+                for (int i = 0; i < count; i++) {
+                    if (System.nanoTime() >= deadlineNanos) {
+                        break emission;
+                    }
 
-                if (sent % 100 == 0) {
-                    LOG.info("Sent {} / {} events", sent, events.size());
+                    OrderEvent event = events.get(i);
+                    if (pass > 0) {
+                        String suffix = "-r" + pass;
+                        event.setOrderId(baseOrderIds[i] + suffix);
+                        event.setCustomerId(baseCustomerIds[i] + suffix);
+                        event.setPurchaseTimestamp(Instant.ofEpochMilli(baseTimestamps[i] + pass * spanMillis));
+                    }
+
+                    String json = objectMapper.writeValueAsString(event);
+                    producer.send(new ProducerRecord<>(TOPIC, event.getOrderId(), json));
+                    sent++;
+
+                    if (sent % 10_000 == 0) {
+                        LOG.info("Sent {} events, {} ev/s effectifs", sent, achievedRate(sent, startNanos));
+                    }
+
+                    long sleepNanos = startNanos + sent * intervalNanos - System.nanoTime();
+                    if (sleepNanos > SLEEP_THRESHOLD_NANOS) {
+                        Thread.sleep(sleepNanos / 1_000_000L, (int) (sleepNanos % 1_000_000L));
+                    }
                 }
 
-                long remaining = delayMs - (System.currentTimeMillis() - sendStart);
-                if (remaining > 0) {
-                    Thread.sleep(remaining);
+                pass++;
+                if (durationSeconds <= 0) {
+                    break;
                 }
             }
 
             producer.flush();
-            LOG.info("Finished sending {} events", sent);
+            LOG.info("Finished: {} events in {}s, {} ev/s effectifs (cible {} ev/s)",
+                    sent, String.format("%.1f", (System.nanoTime() - startNanos) / 1e9),
+                    achievedRate(sent, startNanos), eventsPerSecond);
         }
+    }
+
+    private static String achievedRate(long sent, long startNanos) {
+        double elapsedSeconds = (System.nanoTime() - startNanos) / 1e9;
+        return elapsedSeconds > 0 ? String.format("%.0f", sent / elapsedSeconds) : "n/a";
     }
 
     private static final CSVFormat CSV_FORMAT = CSVFormat.DEFAULT.builder()
@@ -194,8 +269,10 @@ public class OlistEventSimulator {
         String bootstrapServers = System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
         String dataPathStr = System.getenv().getOrDefault("OLIST_DATA_PATH", "./data/");
         int eventsPerSecond = Integer.parseInt(System.getenv().getOrDefault("EVENTS_PER_SECOND", "50"));
+        int durationSeconds = Integer.parseInt(System.getenv().getOrDefault("SIMULATOR_DURATION_SECONDS", "0"));
 
-        OlistEventSimulator simulator = new OlistEventSimulator(bootstrapServers, Path.of(dataPathStr), eventsPerSecond);
+        OlistEventSimulator simulator =
+                new OlistEventSimulator(bootstrapServers, Path.of(dataPathStr), eventsPerSecond, durationSeconds);
         simulator.run();
     }
 }

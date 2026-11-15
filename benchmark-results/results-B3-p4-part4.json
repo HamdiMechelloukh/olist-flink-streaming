@@ -1,0 +1,177 @@
+{
+  "label": "B3-p4-part4 : orders=4 partitions, parallelism=4, AnomalyDetection seul",
+  "env": {
+    "flink_version": "2.0.2",
+    "taskmanagers": 1,
+    "slots_total": 4,
+    "iceberg_enabled": false,
+    "checkpoint_storage": "file:///opt/flink/data/checkpoints",
+    "orders_partitions": 4,
+    "jobs": {
+      "AnomalyDetection": 4
+    }
+  },
+  "results": [
+    {
+      "target_rate": 500,
+      "sending_duration_s": 90,
+      "wallclock_s": 100.9,
+      "sending_per_s": 499.97777777777776,
+      "wallclock_per_s": 445.852719280912,
+      "messages_produced": 44998,
+      "samples": 10,
+      "jobs": {
+        "AnomalyDetection": {
+          "source_records_in_per_s": 95.27619047619046,
+          "busy_pct": 72.67142857142856,
+          "backpressure_pct": 9.32857142857143,
+          "pending_records_max": 0.0,
+          "checkpoint_ms": 6727.857142857143,
+          "checkpoint_bytes": 4018709.285714286,
+          "checkpoints_ok": 2.0,
+          "checkpoints_ko": 1.0
+        }
+      },
+      "cpu": {
+        "docker-prometheus-1": {
+          "cpu_pct": 0.75,
+          "mem": "73.69MiB / 15.59GiB"
+        },
+        "docker-taskmanager-1": {
+          "cpu_pct": 466.58,
+          "mem": "1.234GiB / 15.59GiB"
+        },
+        "docker-jobmanager-1": {
+          "cpu_pct": 1.43,
+          "mem": "1.779GiB / 15.59GiB"
+        },
+        "docker-kafka-1": {
+          "cpu_pct": 45.57,
+          "mem": "935.3MiB / 15.59GiB"
+        }
+      },
+      "drained": true
+    },
+    {
+      "target_rate": 1000,
+      "sending_duration_s": 90,
+      "wallclock_s": 111.1,
+      "sending_per_s": 999.2555555555556,
+      "wallclock_per_s": 809.8050926845741,
+      "messages_produced": 89933,
+      "samples": 11,
+      "jobs": {
+        "AnomalyDetection": {
+          "source_records_in_per_s": 194.86458333333334,
+          "busy_pct": 64.725,
+          "backpressure_pct": 31.2,
+          "pending_records_max": 0.0,
+          "checkpoint_ms": 4863.875,
+          "checkpoint_bytes": 2590561.625,
+          "checkpoints_ok": 7.0,
+          "checkpoints_ko": 1.0
+        }
+      },
+      "cpu": {
+        "docker-prometheus-1": {
+          "cpu_pct": 0.33,
+          "mem": "74.37MiB / 15.59GiB"
+        },
+        "docker-taskmanager-1": {
+          "cpu_pct": 617.34,
+          "mem": "1.21GiB / 15.59GiB"
+        },
+        "docker-jobmanager-1": {
+          "cpu_pct": 4.3,
+          "mem": "1.775GiB / 15.59GiB"
+        },
+        "docker-kafka-1": {
+          "cpu_pct": 90.7,
+          "mem": "1.006GiB / 15.59GiB"
+        }
+      },
+      "drained": true
+    },
+    {
+      "target_rate": 2000,
+      "sending_duration_s": 90,
+      "wallclock_s": 110.8,
+      "sending_per_s": 1999.911111111111,
+      "wallclock_per_s": 1625.176139107509,
+      "messages_produced": 179992,
+      "samples": 11,
+      "jobs": {
+        "AnomalyDetection": {
+          "source_records_in_per_s": 362.76875,
+          "busy_pct": 84.6875,
+          "backpressure_pct": 74.2125,
+          "pending_records_max": 7001.0,
+          "checkpoint_ms": 13950.5,
+          "checkpoint_bytes": 3689754.625,
+          "checkpoints_ok": 12.0,
+          "checkpoints_ko": 1.0
+        }
+      },
+      "cpu": {
+        "docker-prometheus-1": {
+          "cpu_pct": 2.79,
+          "mem": "74.43MiB / 15.59GiB"
+        },
+        "docker-taskmanager-1": {
+          "cpu_pct": 382.54,
+          "mem": "1.201GiB / 15.59GiB"
+        },
+        "docker-jobmanager-1": {
+          "cpu_pct": 3.75,
+          "mem": "1.782GiB / 15.59GiB"
+        },
+        "docker-kafka-1": {
+          "cpu_pct": 64.15,
+          "mem": "989.1MiB / 15.59GiB"
+        }
+      },
+      "drained": true
+    },
+    {
+      "target_rate": 4000,
+      "sending_duration_s": 90,
+      "wallclock_s": 100.3,
+      "sending_per_s": 3999.9,
+      "wallclock_per_s": 3588.4909813630234,
+      "messages_produced": 359991,
+      "samples": 10,
+      "jobs": {
+        "AnomalyDetection": {
+          "source_records_in_per_s": 666.4333333333333,
+          "busy_pct": 65.61428571428571,
+          "backpressure_pct": 56.02857142857143,
+          "pending_records_max": 20901.0,
+          "checkpoint_ms": 4625.0,
+          "checkpoint_bytes": 13423971.857142856,
+          "checkpoints_ok": 18.0,
+          "checkpoints_ko": 1.0
+        }
+      },
+      "cpu": {
+        "docker-prometheus-1": {
+          "cpu_pct": 1.76,
+          "mem": "72.37MiB / 15.59GiB"
+        },
+        "docker-taskmanager-1": {
+          "cpu_pct": 308.12,
+          "mem": "1.19GiB / 15.59GiB"
+        },
+        "docker-jobmanager-1": {
+          "cpu_pct": 1.56,
+          "mem": "1.767GiB / 15.59GiB"
+        },
+        "docker-kafka-1": {
+          "cpu_pct": 150.75,
+          "mem": "1.074GiB / 15.59GiB"
+        }
+      },
+      "drained": false
+    }
+  ],
+  "generated_at": "2026-11-15T14:06:57"
+}

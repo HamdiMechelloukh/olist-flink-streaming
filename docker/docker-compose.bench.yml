@@ -1,0 +1,56 @@
+# Profil de mesure, a superposer au compose principal.
+#
+# Il sert deux usages :
+#
+#  1. Sortir le stockage objet du chemin critique. Les checkpoints vont sur le
+#     disque local du conteneur plutot que sur s3a://, et le sink Iceberg reste
+#     desactive, pour que les chiffres portent sur le traitement de flux et non
+#     sur la latence du stockage.
+#  2. Reproduire une configuration donnee de parallelisme. BENCH_PARALLELISM
+#     vaut 1 par defaut, ce qui rejoue le comportement d'avant l'ajout de
+#     parallelism.default dans le compose principal, et permet de refaire la
+#     comparaison documentee dans docs/BENCHMARKS.md.
+#
+# Usage :
+#   docker compose --env-file .env \
+#     -f docker/docker-compose.yml -f docker/docker-compose.bench.yml \
+#     up -d kafka jobmanager taskmanager prometheus
+#
+#   BENCH_PARALLELISM=4 docker compose ... up -d ...
+#
+# Le volume flink_data appartient a root alors que le processus Flink tourne
+# sous l'utilisateur flink via gosu : preparer le repertoire avant le premier
+# demarrage, sinon la creation du stockage de checkpoints echoue.
+#   docker run --rm -v docker_flink_data:/data alpine:3 \
+#     sh -c 'mkdir -p /data/checkpoints && chown -R 9999:9999 /data'
+
+services:
+  jobmanager:
+    # Le compose principal attend la fin de s3-init, inutile ici.
+    depends_on: !reset []
+    environment:
+      ICEBERG_ENABLED: "false"
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: ${BENCH_PARALLELISM:-1}
+        state.backend.type: rocksdb
+        state.checkpoints.dir: file:///opt/flink/data/checkpoints
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
+
+  taskmanager:
+    environment:
+      ICEBERG_ENABLED: "false"
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: ${BENCH_PARALLELISM:-1}
+        state.backend.type: rocksdb
+        state.checkpoints.dir: file:///opt/flink/data/checkpoints
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
+    # Les checkpoints sont ecrits par le TaskManager et relus par le
+    # JobManager : les deux doivent voir le meme chemin.
+    volumes:
+      - flink_data:/opt/flink/data
